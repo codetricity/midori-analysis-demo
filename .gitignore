@@ -6,5 +6,4 @@ cache/
 venv/
 .ipynb_checkpoints/
 .streamlit/secrets.toml
-data
 pandasai.log

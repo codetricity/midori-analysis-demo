@@ -14,18 +14,23 @@ from urllib.parse import quote_plus
 from datetime import datetime
 import pytz
 import numpy as np
+import yaml
 
 
 # Add this near the top of the file with other constants/configurations
 SYSTEM_PROMPT = """You are Midori Masuda, a mid-20s female business analyst who helps 
 companies make data-driven decisions. You work for Oppkey.
 Our client is RICOH, selling the THETA 360 camera. We
-are trying to expand sales of the THETA 360 camera.
+are trying to expand sales of the RICOH THETA 360 camera.
 You are friendly and professional, with a knack for explaining 
 complex data in simple terms. 
-When analyzing data, you focus on practical business insights 
+
+The spreadsheet contains users and organizations who are developers 
+of applications that use the THETA 360 camera.
+When analyzing data, focus on practical business insights 
 and actionable recommendations to expand sales in different regions
-and markets.
+and markets. The THETA will lose on price, so specific RICOH THETA 
+technology advantages must be highlighted and match the company.
 """
 
 # Set up logging
@@ -234,11 +239,27 @@ def perform_google_search(query, num_results=5):
         # Get API credentials from secrets
         log_step("Attempting to load Google API credentials...")
         try:
+            # Check if google section exists in secrets
+            if 'google' not in st.secrets:
+                log_step("Error: 'google' section not found in secrets")
+                return []
+                
             api_key = st.secrets["google"]["api_key"]
             search_engine_id = st.secrets["google"]["search_engine_id"]
+            
+            # Validate credentials format
+            if not api_key or len(api_key.strip()) < 10:
+                log_step("Error: Invalid API key format")
+                return []
+            if not search_engine_id or len(search_engine_id.strip()) < 10:
+                log_step("Error: Invalid Search Engine ID format")
+                return []
+                
             log_step("Successfully loaded API credentials")
             log_step(f"Search Engine ID length: {len(search_engine_id)}")
             log_step(f"API Key length: {len(api_key)}")
+            log_step("API Key prefix: " + api_key[:6] + "...")
+            log_step("Search Engine ID prefix: " + search_engine_id[:6] + "...")
         except Exception as e:
             log_step(f"Error loading API credentials: {str(e)}")
             return []
@@ -301,6 +322,81 @@ def perform_google_search(query, num_results=5):
         return []
 
 
+def load_theta_specs():
+    """Load THETA camera specifications from YAML file"""
+    try:
+        with open('data/theta_specs.yaml', 'r') as file:
+            return yaml.safe_load(file)
+    except Exception as e:
+        logger.error(f"Error loading THETA specs: {str(e)}")
+        return None
+
+def analyze_theta_specs(specs_data, analysis_type=None):
+    """Analyze THETA specifications based on analysis type"""
+    if not specs_data:
+        return "Error: Could not load THETA specifications."
+        
+    if analysis_type == "models":
+        response = "### 📸 RICOH THETA Camera Models\n\n"
+        for model, data in specs_data['current_models'].items():
+            response += f"#### {model}\n"
+            response += f"*Released: {data['release_date']}*\n\n"
+            
+            response += "**Key Features:**\n"
+            for feature in data['key_features']:
+                response += f"- {feature}\n"
+            
+            response += "\n**Technical Specifications:**\n"
+            for spec, value in data['technical_specs'].items():
+                response += f"- {spec.replace('_', ' ').title()}: {value}\n"
+            
+            response += "\n**Competitive Advantages:**\n"
+            for advantage in data['competitive_advantages']:
+                response += f"- {advantage}\n"
+            
+            response += "\n---\n\n"
+            
+    elif analysis_type == "industries":
+        response = "### 🏢 Target Industries and Use Cases\n\n"
+        for industry, data in specs_data['target_industries'].items():
+            response += f"#### {industry.title()}\n"
+            response += f"*Recommended Model: {data['recommended_model']}*\n\n"
+            
+            response += "**Use Cases:**\n"
+            for use_case in data['use_cases']:
+                response += f"- {use_case}\n"
+            
+            response += "\n"
+            
+    elif analysis_type == "comparison":
+        response = "### 🔄 THETA Model Comparison\n\n"
+        response += "| Feature | THETA X | THETA Z1 | THETA SC2 |\n"
+        response += "|---------|---------|-----------|------------|\n"
+        
+        # Compare key specifications
+        specs_to_compare = [
+            "image_sensor",
+            "resolution_still",
+            "resolution_video",
+            "storage",
+            "battery_life",
+            "weight"
+        ]
+        
+        for spec in specs_to_compare:
+            response += f"| {spec.replace('_', ' ').title()} | "
+            for model in ['THETA X', 'THETA Z1', 'THETA SC2']:
+                value = specs_data['current_models'][model]['technical_specs'][spec]
+                response += f"{value} | "
+            response += "\n"
+            
+    else:
+        response = "### 🌟 RICOH THETA Unique Selling Points\n\n"
+        for point in specs_data['unique_selling_points']:
+            response += f"- {point}\n"
+            
+    return response
+
 def execute_query(query):
     """Function to safely execute query"""
     log_step(f"Sending query: '{query}'")
@@ -308,6 +404,22 @@ def execute_query(query):
     charts = []  # List to store chart data
     
     try:
+        # Check for THETA-related queries
+        query_lower = query.lower()
+        if "theta" in query_lower and any(x in query_lower for x in ["specs", "specifications", "features", "models", "compare"]):
+            specs_data = load_theta_specs()
+            if not specs_data:
+                return "Error: Could not load THETA specifications. Please check if the specifications file exists.", charts
+                
+            if "compare" in query_lower or "comparison" in query_lower:
+                return analyze_theta_specs(specs_data, "comparison"), charts
+            elif "industry" in query_lower or "use case" in query_lower:
+                return analyze_theta_specs(specs_data, "industries"), charts
+            elif "model" in query_lower:
+                return analyze_theta_specs(specs_data, "models"), charts
+            else:
+                return analyze_theta_specs(specs_data), charts
+
         # Check if this is a chart request
         if "chart" in query.lower() or "growth" in query.lower() or "trend" in query.lower():
             # Extract country/region from query

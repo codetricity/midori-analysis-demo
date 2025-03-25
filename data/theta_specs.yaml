@@ -1,0 +1,96 @@
+current_models:
+  THETA X:
+    release_date: "2022-03"
+    key_features:
+      - 5.7K 360-degree video (30fps)
+      - 60MP 360-degree still images
+      - 2.25-inch touchscreen
+      - Replaceable battery
+      - Android-based OS
+      - Standalone operation without smartphone
+    technical_specs:
+      image_sensor: "1/2.0-inch CMOS (x2)"
+      resolution_still: "11008 x 5504 (60MP)"
+      resolution_video: "5760 x 2880 @ 30fps"
+      storage: "microSDXC (up to 256GB)"
+      battery_life: "2.5 hours (still image)"
+      weight: "170g"
+    competitive_advantages:
+      - Largest touchscreen in class
+      - No smartphone required for operation
+      - Fastest image transfer in THETA series
+      - Excellent for virtual tours and real estate
+      - High resolution for professional use
+
+  THETA Z1:
+    release_date: "2019-05"
+    key_features:
+      - 1.0-inch sensor (largest in 360 cameras)
+      - 23MP 360-degree still images
+      - 4K 360-degree video
+      - RAW (DNG) support
+      - Variable aperture (F2.1, F3.5, F5.6)
+    technical_specs:
+      image_sensor: "1-inch CMOS (x2)"
+      resolution_still: "7296 x 3648 (23MP)"
+      resolution_video: "3840 x 1920 @ 30fps"
+      storage: "Internal 19GB"
+      battery_life: "60 minutes (video)"
+      weight: "182g"
+    competitive_advantages:
+      - Largest sensor in any 360 camera
+      - Professional image quality
+      - Advanced manual controls
+      - Ideal for professional photography
+      - Superior low-light performance
+
+target_industries:
+  real_estate:
+    use_cases:
+      - Virtual property tours
+      - Interactive walkthrough
+      - Property documentation
+      - Marketing materials
+    recommended_model: "THETA X"
+
+  construction:
+    use_cases:
+      - Project documentation
+      - Progress tracking
+      - Site surveys
+      - Safety inspections
+    recommended_model: "THETA Z1"
+
+  education:
+    use_cases:
+      - Virtual campus tours
+      - Remote learning
+      - Facility documentation
+      - Event documentation
+    recommended_model: "THETA X"
+
+  tourism:
+    use_cases:
+      - Virtual tours
+      - Hotel showcases
+      - Restaurant views
+      - Tourist attractions
+    recommended_model: "THETA X"
+
+  events:
+    use_cases:
+      - Event coverage
+      - Virtual attendance
+      - Venue showcases
+      - Live streaming
+    recommended_model: "THETA X"
+
+unique_selling_points:
+  - "Only 360 camera with 1-inch sensors (Z1)"
+  - "Largest touchscreen in class (X)"
+  - "Most complete professional feature set"
+  - "Superior image quality in low light"
+  - "Extensive developer API and plugin system"
+  - "Strong integration with major platforms"
+  - "Professional-grade build quality"
+  - "Industry-leading customer support" 
