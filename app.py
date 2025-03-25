@@ -370,10 +370,27 @@ def analyze_theta_specs(specs_data, analysis_type=None):
             
     elif analysis_type == "comparison":
         response = "### 🔄 THETA Model Comparison\n\n"
-        response += "| Feature | THETA X | THETA Z1 | THETA SC2 |\n"
-        response += "|---------|---------|-----------|------------|\n"
         
-        # Compare key specifications
+        # Define the models to compare
+        models = ['THETA X', 'THETA Z1']
+        
+        # Create the header row
+        response += "| Feature | " + " | ".join(models) + " |\n"
+        response += "|" + "|".join(["-" * 10] * (len(models) + 1)) + "|\n"
+        
+        # Compare key features first
+        response += "| **Key Features** |" + "|".join([" " for _ in models]) + "|\n"
+        max_features = max(len(specs_data['current_models'][model]['key_features']) for model in models)
+        for i in range(max_features):
+            response += "| • |"
+            for model in models:
+                features = specs_data['current_models'][model]['key_features']
+                feature = features[i] if i < len(features) else ""
+                response += f" {feature} |"
+            response += "\n"
+        
+        # Compare technical specifications
+        response += "| **Technical Specs** |" + "|".join([" " for _ in models]) + "|\n"
         specs_to_compare = [
             "image_sensor",
             "resolution_still",
@@ -384,10 +401,21 @@ def analyze_theta_specs(specs_data, analysis_type=None):
         ]
         
         for spec in specs_to_compare:
-            response += f"| {spec.replace('_', ' ').title()} | "
-            for model in ['THETA X', 'THETA Z1', 'THETA SC2']:
+            response += f"| {spec.replace('_', ' ').title()} |"
+            for model in models:
                 value = specs_data['current_models'][model]['technical_specs'][spec]
-                response += f"{value} | "
+                response += f" {value} |"
+            response += "\n"
+        
+        # Compare competitive advantages
+        response += "| **Competitive Advantages** |" + "|".join([" " for _ in models]) + "|\n"
+        max_advantages = max(len(specs_data['current_models'][model]['competitive_advantages']) for model in models)
+        for i in range(max_advantages):
+            response += "| • |"
+            for model in models:
+                advantages = specs_data['current_models'][model]['competitive_advantages']
+                advantage = advantages[i] if i < len(advantages) else ""
+                response += f" {advantage} |"
             response += "\n"
             
     else:
@@ -404,14 +432,24 @@ def execute_query(query):
     charts = []  # List to store chart data
     
     try:
-        # Check for THETA-related queries
+        # Check for THETA-related queries first
         query_lower = query.lower()
-        if "theta" in query_lower and any(x in query_lower for x in ["specs", "specifications", "features", "models", "compare"]):
+        
+        # More specific THETA query detection
+        is_theta_query = (
+            ("theta" in query_lower and any(x in query_lower for x in ["specs", "specifications", "features", "models", "compare"])) or
+            (("x" in query_lower or "z1" in query_lower) and any(x in query_lower for x in ["compare", "vs", "versus", "or", "and"]))
+        )
+        
+        if is_theta_query:
+            log_step("Handling THETA-related query...")
             specs_data = load_theta_specs()
             if not specs_data:
                 return "Error: Could not load THETA specifications. Please check if the specifications file exists.", charts
                 
-            if "compare" in query_lower or "comparison" in query_lower:
+            # Determine the type of THETA query
+            if any(x in query_lower for x in ["compare", "vs", "versus"]) or ("x" in query_lower and "z1" in query_lower):
+                log_step("Generating THETA model comparison...")
                 return analyze_theta_specs(specs_data, "comparison"), charts
             elif "industry" in query_lower or "use case" in query_lower:
                 return analyze_theta_specs(specs_data, "industries"), charts

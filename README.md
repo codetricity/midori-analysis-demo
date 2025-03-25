@@ -43,3 +43,4 @@ api_key = "sk-proj..."
 * show organizations in united states
 * search on openspace reality capture
 * search on matterport
+* compare x and z1  or "theta x versus z1"
