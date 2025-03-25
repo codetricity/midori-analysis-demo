@@ -9,6 +9,10 @@ import streamlit as st
 # import hashlib
 import threading
 import math
+from googleapiclient.discovery import build
+from urllib.parse import quote_plus
+from datetime import datetime
+import pytz
 
 
 # Add this near the top of the file with other constants/configurations
@@ -39,9 +43,16 @@ try:
     file_id = st.secrets["data"]["gdrive_file_id"]
     url = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv"
 
+    log_step(f"Loading data from URL: {url}")
     df = pd.read_csv(url)
+    log_step(f"Initial DataFrame shape: {df.shape}")
+    log_step(f"Initial DataFrame columns: {df.columns.tolist()}")
+    log_step(f"Sample of organizations: {df['organization'].head().tolist()}")
+    
     df.loc[df['organization'].isin(['x', '-', '_', 'none', 'na', 'xxx']), 'organization'] = ''
     log_step("Loaded DataFrame from Google Drive")
+    log_step(f"DataFrame shape after cleaning: {df.shape}")
+    log_step(f"Sample of locations: {df['last_ip_location'].head().tolist()}")
 except KeyError:
     log_step(
         "Failed to load CSV file from drive. Attempting "
@@ -61,7 +72,7 @@ llm = OpenAI(
     api_token=st.secrets["openai"]["api_key"],
     options={
         "model": "gpt-4",
-        "temperature": 0.1,  # Lower temperature for more focused responses
+        "temperature": 0.2,  # Lower temperature for more focused responses
         "max_tokens": 3000,
         "system_prompt": SYSTEM_PROMPT  # Add the system prompt here
     }
@@ -142,17 +153,29 @@ def main():
                 st.markdown(message["content"])
         else:
             with st.chat_message("assistant"):
-                # Randomly select between the three Midori poses
+                # Show Midori's image
                 midori_pose = random.choice([
                     "images/midori_poses/midori_1.png",
                     "images/midori_poses/midori_2.png",
                     "images/midori_poses/midori_3.png"
                 ])
                 st.image(midori_pose, width=100)
+                
+                # Display charts if they exist in the message
+                if "charts" in message:
+                    for chart_data in message["charts"]:
+                        if chart_data['type'] == 'bar':
+                            st.bar_chart(
+                                data=chart_data['data'],
+                                use_container_width=True
+                            )
+                
+                # Display the text response
                 st.markdown(message["content"])
 
     # Chat input
     if prompt := st.chat_input("Ask a question about your dataset"):
+        # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         with st.chat_message("user"):
@@ -168,19 +191,175 @@ def main():
             st.image(midori_pose, width=100)
 
             # Get the response
-            response = execute_query(prompt)
+            response, charts = execute_query(prompt)
             
+            # Create the assistant message with both response and charts
+            assistant_message = {
+                "role": "assistant",
+                "content": response,
+                "charts": charts
+            }
+            
+            # Display charts if they exist
+            if charts:
+                for chart_data in charts:
+                    if chart_data['type'] == 'bar':
+                        st.bar_chart(
+                            data=chart_data['data'],
+                            use_container_width=True
+                        )
+            
+            # Display the text response
             st.markdown(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
+            
+            # Add the complete message to chat history
+            st.session_state.messages.append(assistant_message)
+
+
+def perform_google_search(query, num_results=5):
+    """Perform a Google search and return results"""
+    try:
+        # Get API credentials from secrets
+        api_key = st.secrets["google"]["api_key"]
+        search_engine_id = st.secrets["google"]["search_engine_id"]
+        
+        log_step(f"Performing Google search for query: {query}")
+        log_step("API credentials loaded successfully")
+        
+        # Create a service object for the Custom Search API
+        service = build("customsearch", "v1", developerKey=api_key)
+        log_step("Created Custom Search API service")
+        
+        # Perform the search
+        log_step("Executing search request...")
+        result = service.cse().list(
+            q=query,
+            cx=search_engine_id,
+            num=num_results
+        ).execute()
+        
+        # Log the raw response structure
+        log_step(f"Search completed. Response keys: {result.keys() if result else 'No result'}")
+        
+        # Extract and format results
+        search_results = []
+        if 'items' in result:
+            log_step(f"Found {len(result['items'])} search results")
+            for item in result['items']:
+                search_results.append({
+                    'title': item['title'],
+                    'link': item['link'],
+                    'snippet': item['snippet']
+                })
+        else:
+            log_step("No items found in search results")
+        
+        return search_results
+    except Exception as e:
+        logger.error(f"Error performing Google search: {str(e)}")
+        log_step(f"Search error: {str(e)}")
+        return []
 
 
 def execute_query(query):
     """Function to safely execute query"""
     log_step(f"Sending query: '{query}'")
     start_time = time.time()
+    charts = []  # List to store chart data
     
     try:
-        if "most active users" in query.lower():
+        # Check for time-related queries
+        if any(x in query.lower() for x in ["what time", "current time", "time in", "time at"]):
+            # Get current time in Tokyo
+            tokyo_tz = pytz.timezone('Asia/Tokyo')
+            tokyo_time = datetime.now(tokyo_tz)
+            
+            response = f"### 🕒 Current Time\n\n"
+            response += f"In Tokyo, it is currently {tokyo_time.strftime('%I:%M %p')} on {tokyo_time.strftime('%A, %B %d, %Y')}"
+            
+            return response, charts
+
+        # Check if the query requires external information
+        if any(keyword in query.lower() for keyword in ["search for", "find information about", "look up", "what is", "who is", "tell me about"]):
+            log_step("Performing Google search...")
+            # Extract the actual search term
+            search_keywords = [
+                "search for", "find information about", "look up",
+                "what is", "who is", "tell me about"
+            ]
+            query_lower = query.lower()
+            search_term = query_lower
+            for keyword in search_keywords:
+                if keyword in query_lower:
+                    search_term = query_lower.split(keyword, 1)[1].strip()
+                    break
+            
+            # Perform Google search with the extracted term
+            search_results = perform_google_search(search_term)
+            
+            if search_results:
+                response = f"### 🔍 Search Results for '{search_term}'\n\n"
+                
+                # Create a clean, formatted response without using matplotlib
+                for idx, result in enumerate(search_results, 1):
+                    response += f"#### {idx}. [{result['title']}]({result['link']})\n"
+                    response += f"{result['snippet']}\n\n"
+                
+                # Add analysis of search results
+                response += "\n### 📊 Analysis\n"
+                
+                # Format search results for analysis
+                formatted_results = []
+                for idx, result in enumerate(search_results):
+                    formatted_results.append(f"{idx+1}. {result['title']}")
+                    formatted_results.append(result['snippet'])
+                    formatted_results.append("")  # Empty line between results
+                
+                # Create analysis prompt
+                prompt_parts = [
+                    "As Midori Masuda, analyze these search results and provide business-focused insights:",
+                    "",
+                    f"Search Query: {search_term}",
+                    "",
+                    "Results:",
+                    "\n".join(formatted_results),
+                    "Please provide a concise analysis focusing on:",
+                    "1. Key findings relevant to business decisions",
+                    "2. Market insights and trends",
+                    "3. Strategic recommendations based on the search results",
+                    "",
+                    "Keep the analysis practical and actionable, focusing on concrete steps to drive business growth."
+                ]
+                
+                analysis_prompt = "\n".join(prompt_parts)
+
+                # Get analysis from OpenAI
+                try:
+                    import openai
+                    openai.api_key = st.secrets["openai"]["api_key"]
+                    
+                    analysis_response = openai.ChatCompletion.create(
+                        model="gpt-4",
+                        messages=[
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": analysis_prompt}
+                        ],
+                        temperature=0.1,
+                        max_tokens=1000
+                    )
+                    
+                    analysis = analysis_response.choices[0].message.content
+                    response += analysis
+                except Exception as e:
+                    logger.error(f"Error generating analysis: {str(e)}")
+                    response += "\nUnable to generate analysis at this time."
+                
+                return response, charts
+
+            else:
+                return f"I couldn't find any relevant information for '{search_term}'.", charts
+
+        elif "most active users" in query.lower():
             # Create a clean DataFrame for analysis
             clean_df = df.copy()
             
@@ -219,7 +398,7 @@ def execute_query(query):
             analysis = analyze_table_with_openai(analysis_df, "Most active users in the dataset")
             response += analysis
             
-            return response
+            return response, charts
             
         elif "organizations" in query.lower():
             # Create a clean DataFrame for analysis
@@ -281,7 +460,7 @@ def execute_query(query):
             total_users = len(clean_df)
             
             if total_users == 0:
-                return f"No organizations found{f' in {location}' if location else ''}. This might be due to location matching or data filtering."
+                return f"No organizations found{f' in {location}' if location else ''}. This might be due to location matching or data filtering.", charts
             
             response = "### 🏢 Organizations in the Dataset\n\n"
             response += "| Organization | Number of Users |\n"
@@ -308,7 +487,7 @@ def execute_query(query):
             analysis = analyze_table_with_openai(analysis_df, context)
             response += analysis
             
-            return response
+            return response, charts
             
         elif "countries" in query.lower():
             # Create a clean DataFrame for analysis
@@ -362,7 +541,7 @@ def execute_query(query):
             analysis = analyze_table_with_openai(analysis_df, "Country distribution of users in the dataset")
             response += analysis
             
-            return response
+            return response, charts
             
         elif "breakdown by country" in query.lower():
             # Create a clean DataFrame for analysis
@@ -387,11 +566,11 @@ def execute_query(query):
             
             response = "### 🌎 User Distribution by Country\n\n"
             
-            # Create bar chart using Streamlit
-            st.bar_chart(
-                data=top_15.set_index('Country')['Users'],
-                use_container_width=True
-            )
+            # Add chart data to charts list
+            charts.append({
+                'type': 'bar',
+                'data': top_15.set_index('Country')['Users']
+            })
             
             # Add detailed breakdown in text
             response += "#### Detailed Breakdown:\n\n"
@@ -407,7 +586,7 @@ def execute_query(query):
                 others_pct = (others_count / total_users * 100).round(2)
                 response += f"\n*Other countries: {others_count} users ({others_pct:.2f}%)*"
             
-            return response
+            return response, charts
         elif "organizations by industry" in query.lower():
             # Create a clean DataFrame for analysis
             clean_df = df.copy()
@@ -465,7 +644,7 @@ def execute_query(query):
                     if len(sample_orgs) > 0:
                         response += f"\n**{industry}**: " + ", ".join(sample_orgs)
             
-            return response
+            return response, charts
         elif any(x in query.lower() for x in ["show users", "users from", "list users in"]):
             # Create a clean DataFrame for analysis
             clean_df = df.copy()
@@ -566,7 +745,7 @@ def execute_query(query):
                 
                 if len(users_to_show) == 0:
                     # Debug: Show total users before filtering
-                    return f"No users with names found in {location}. Found {total_before_name} total users but none had names. Debug info: {len(matching_locations)} matching locations found."
+                    return f"No users with names found in {location}. Found {total_before_name} total users but none had names. Debug info: {len(matching_locations)} matching locations found.", charts
                 
                 response = f"### 👥 Named Users in {location} ({len(users_to_show)} users)\n\n"
                 
@@ -595,9 +774,9 @@ def execute_query(query):
                     analysis = analyze_table_with_openai(org_analysis, f"Organization distribution in {location}")
                     response += analysis
                 
-                return response
+                return response, charts
             else:
-                return "Please specify a valid location or organization name"
+                return "Please specify a valid location or organization name", charts
             
         elif "users who read the most posts" in query.lower():
             # Create a clean DataFrame for analysis
@@ -619,20 +798,20 @@ def execute_query(query):
                 
                 response += f"| {rank} | {username} | {posts_read:,} | {location} | {reg_location} |\n"
             
-            return response
+            return response, charts
             
         else:
             # Use PandasAI for other queries
             result = sdf.chat(query)
             if not isinstance(result, str):
                 result = str(result)
-            return result
+            return result, charts
             
     except Exception as e:
         elapsed_time = time.time() - start_time
         log_step(f"Error occurred after {elapsed_time:.2f} seconds")
         logger.error(f"Error: {str(e)}", exc_info=True)
-        return f"Error processing query: {str(e)}"
+        return f"Error processing query: {str(e)}", charts
 
 def analyze_table_with_openai(table_data, context):
     """Analyze table data using OpenAI with sales-focused insights"""
