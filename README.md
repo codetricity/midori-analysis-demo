@@ -36,3 +36,10 @@ api_key = "sk-proj..."
 ## run
 
 `streamlit run app.py`
+
+## Tests
+
+* show chart of japan projected growth
+* show organizations in united states
+* search on openspace reality capture
+* search on matterport

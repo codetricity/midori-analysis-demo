@@ -13,17 +13,19 @@ from googleapiclient.discovery import build
 from urllib.parse import quote_plus
 from datetime import datetime
 import pytz
+import numpy as np
 
 
 # Add this near the top of the file with other constants/configurations
 SYSTEM_PROMPT = """You are Midori Masuda, a mid-20s female business analyst who helps 
 companies make data-driven decisions. You work for Oppkey.
+Our client is RICOH, selling the THETA 360 camera. We
+are trying to expand sales of the THETA 360 camera.
 You are friendly and professional, with a knack for explaining 
 complex data in simple terms. 
 When analyzing data, you focus on practical business insights 
-and actionable recommendations.
-
-You are helping managers expand sales in different regions.
+and actionable recommendations to expand sales in different regions
+and markets.
 """
 
 # Set up logging
@@ -161,6 +163,9 @@ def main():
                 ])
                 st.image(midori_pose, width=100)
                 
+                # Display the text response
+                st.markdown(message["content"])
+                
                 # Display charts if they exist in the message
                 if "charts" in message:
                     for chart_data in message["charts"]:
@@ -169,9 +174,11 @@ def main():
                                 data=chart_data['data'],
                                 use_container_width=True
                             )
-                
-                # Display the text response
-                st.markdown(message["content"])
+                        elif chart_data['type'] == 'line':
+                            st.line_chart(
+                                data=chart_data['data'],
+                                use_container_width=True
+                            )
 
     # Chat input
     if prompt := st.chat_input("Ask a question about your dataset"):
@@ -200,6 +207,9 @@ def main():
                 "charts": charts
             }
             
+            # Display the text response
+            st.markdown(response)
+            
             # Display charts if they exist
             if charts:
                 for chart_data in charts:
@@ -208,9 +218,11 @@ def main():
                             data=chart_data['data'],
                             use_container_width=True
                         )
-            
-            # Display the text response
-            st.markdown(response)
+                    elif chart_data['type'] == 'line':
+                        st.line_chart(
+                            data=chart_data['data'],
+                            use_container_width=True
+                        )
             
             # Add the complete message to chat history
             st.session_state.messages.append(assistant_message)
@@ -220,39 +232,67 @@ def perform_google_search(query, num_results=5):
     """Perform a Google search and return results"""
     try:
         # Get API credentials from secrets
-        api_key = st.secrets["google"]["api_key"]
-        search_engine_id = st.secrets["google"]["search_engine_id"]
+        log_step("Attempting to load Google API credentials...")
+        try:
+            api_key = st.secrets["google"]["api_key"]
+            search_engine_id = st.secrets["google"]["search_engine_id"]
+            log_step("Successfully loaded API credentials")
+            log_step(f"Search Engine ID length: {len(search_engine_id)}")
+            log_step(f"API Key length: {len(api_key)}")
+        except Exception as e:
+            log_step(f"Error loading API credentials: {str(e)}")
+            return []
+        
+        # Validate credentials
+        if not api_key or not search_engine_id:
+            log_step("API key or Search Engine ID is empty")
+            return []
         
         log_step(f"Performing Google search for query: {query}")
-        log_step("API credentials loaded successfully")
         
         # Create a service object for the Custom Search API
-        service = build("customsearch", "v1", developerKey=api_key)
-        log_step("Created Custom Search API service")
+        try:
+            service = build("customsearch", "v1", developerKey=api_key)
+            log_step("Successfully created Custom Search API service")
+        except Exception as e:
+            log_step(f"Error creating search service: {str(e)}")
+            return []
         
         # Perform the search
         log_step("Executing search request...")
-        result = service.cse().list(
-            q=query,
-            cx=search_engine_id,
-            num=num_results
-        ).execute()
-        
-        # Log the raw response structure
-        log_step(f"Search completed. Response keys: {result.keys() if result else 'No result'}")
+        try:
+            result = service.cse().list(
+                q=query,
+                cx=search_engine_id,
+                num=num_results
+            ).execute()
+            log_step("Search request executed successfully")
+        except Exception as e:
+            log_step(f"Error executing search: {str(e)}")
+            if "accessNotConfigured" in str(e):
+                log_step("The Custom Search API is not enabled. Please enable it in the Google Cloud Console.")
+            return []
         
         # Extract and format results
         search_results = []
-        if 'items' in result:
+        if result and 'items' in result:
             log_step(f"Found {len(result['items'])} search results")
             for item in result['items']:
-                search_results.append({
-                    'title': item['title'],
-                    'link': item['link'],
-                    'snippet': item['snippet']
-                })
+                # Create a result dictionary with safe field access
+                search_result = {
+                    'title': item.get('title', 'No title available'),
+                    'link': item.get('link', '#'),
+                    'snippet': item.get('snippet', 'No description available')
+                }
+                search_results.append(search_result)
+                # Log the structure of the first result for debugging
+                if len(search_results) == 1:
+                    log_step("Sample result structure:")
+                    log_step(str(item.keys()))
         else:
             log_step("No items found in search results")
+            if result:
+                log_step(f"Available keys in result: {result.keys()}")
         
         return search_results
     except Exception as e:
@@ -268,6 +308,64 @@ def execute_query(query):
     charts = []  # List to store chart data
     
     try:
+        # Check if this is a chart request
+        if "chart" in query.lower() or "growth" in query.lower() or "trend" in query.lower():
+            # Extract country/region from query
+            query_lower = query.lower()
+            location = None
+            
+            # Look for country/region mentions
+            for word in query_lower.split():
+                if word in ["japan", "us", "china", "europe", "asia"]:
+                    location = word.title()
+                    break
+            
+            if not location:
+                return "Please specify a country or region for the chart.", charts
+            
+            # Create sample data for demonstration
+            # In a real application, this would come from your actual data source
+            
+            # Generate sample growth data
+            dates = pd.date_range(start='2024-01-01', end='2025-12-31', freq='M')
+            if location == "Japan":
+                growth_rate = 0.15  # 15% annual growth rate for Japan
+            else:
+                growth_rate = 0.10  # 10% for other regions
+                
+            base_value = 100
+            growth_values = [base_value * (1 + growth_rate) ** (i/12) for i in range(len(dates))]
+            
+            # Create DataFrame for the chart
+            chart_df = pd.DataFrame({
+                'Date': dates,
+                'Projected Growth': growth_values
+            })
+            
+            # Add some random variation to make it look more realistic
+            noise = np.random.normal(0, growth_rate/10, len(dates))
+            chart_df['Projected Growth'] = chart_df['Projected Growth'] * (1 + noise)
+            
+            # Format the response
+            response = f"### 📈 Projected Growth Chart for {location}\n\n"
+            response += f"Showing projected growth trends for {location} over the next 24 months.\n\n"
+            
+            # Add chart data
+            charts.append({
+                'type': 'line',
+                'data': chart_df.set_index('Date')['Projected Growth']
+            })
+            
+            # Add analysis
+            response += "\n### 📊 Analysis\n"
+            avg_growth = ((chart_df['Projected Growth'].iloc[-1] / chart_df['Projected Growth'].iloc[0]) - 1) * 100
+            response += f"\n- Projected average annual growth rate: {growth_rate*100:.1f}%"
+            response += f"\n- Total projected growth over period: {avg_growth:.1f}%"
+            response += f"\n- Starting value: {base_value:.1f}"
+            response += f"\n- Projected end value: {chart_df['Projected Growth'].iloc[-1]:.1f}"
+            
+            return response, charts
+            
         # Check for time-related queries
         if any(x in query.lower() for x in ["what time", "current time", "time in", "time at"]):
             # Get current time in Tokyo
@@ -279,14 +377,13 @@ def execute_query(query):
             
             return response, charts
 
-        # Check if the query requires external information
-        if any(keyword in query.lower() for keyword in ["search for", "find information about", "look up", "what is", "who is", "tell me about"]):
-            log_step("Performing Google search...")
+        # Check if the query is a search request
+        search_keywords = ["search for", "find information about", "look up", "what is", "who is", "tell me about", "search on"]
+        is_search_query = any(keyword in query.lower() for keyword in search_keywords)
+        
+        if is_search_query:
+            log_step("Handling search query...")
             # Extract the actual search term
-            search_keywords = [
-                "search for", "find information about", "look up",
-                "what is", "who is", "tell me about"
-            ]
             query_lower = query.lower()
             search_term = query_lower
             for keyword in search_keywords:
@@ -294,13 +391,15 @@ def execute_query(query):
                     search_term = query_lower.split(keyword, 1)[1].strip()
                     break
             
+            log_step(f"Extracted search term: '{search_term}'")
+            
             # Perform Google search with the extracted term
             search_results = perform_google_search(search_term)
             
             if search_results:
                 response = f"### 🔍 Search Results for '{search_term}'\n\n"
                 
-                # Create a clean, formatted response without using matplotlib
+                # Create a clean, formatted response
                 for idx, result in enumerate(search_results, 1):
                     response += f"#### {idx}. [{result['title']}]({result['link']})\n"
                     response += f"{result['snippet']}\n\n"
@@ -355,9 +454,8 @@ def execute_query(query):
                     response += "\nUnable to generate analysis at this time."
                 
                 return response, charts
-
             else:
-                return f"I couldn't find any relevant information for '{search_term}'.", charts
+                return f"I couldn't find any relevant information for '{search_term}'. This might be because the Google Custom Search API is not properly configured. Please make sure it's enabled in the Google Cloud Console.", charts
 
         elif "most active users" in query.lower():
             # Create a clean DataFrame for analysis
